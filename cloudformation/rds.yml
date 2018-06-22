@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+  VpcStack:
+    Description: Name of an active CloudFormation vpc stack
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    AllowedPattern: '^[a-zA-Z][-a-zA-Z0-9]*$'
+  DatabaseName:
+    Description: The database name
+    Type: String
+    MinLength: '1'
+    MaxLength: '8'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
+  MasterUsername:
+    NoEcho: 'true'
+    Description: The database admin account username
+    Type: String
+    MinLength: '1'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
+  MasterUserPassword:
+    NoEcho: 'true'
+    Description: The database admin account password
+    Type: String
+    MinLength: '8'
+  InstanceClass:
+    Default: db.t2.micro
+    Description: Database instance class
+    Type: String
+    AllowedValues:
+      - db.t2.micro
+      - db.m1.small
+      - db.m1.large
+      - db.m1.xlarge
+      - db.m2.xlarge
+    ConstraintDescription: must select a valid database instance type.
+Resources:
+  Instance:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      DBName: !Ref DatabaseName
+      DBInstanceClass: !Ref InstanceClass
+      DBParameterGroupName: !Ref ParameterGroup
+      AllocatedStorage: 8
+      Engine: postgres
+      EngineVersion: 9.6
+      MasterUsername: !Ref MasterUsername
+      MasterUserPassword: !Ref MasterUserPassword
+      DBSubnetGroupName: !Ref SubnetGroup
+      VPCSecurityGroups:
+        - !Ref EC2SecurityGroup
+      PubliclyAccessible: false
+    DeletionPolicy: Snapshot
+  Replica:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      SourceDBInstanceIdentifier: !Ref 'Instance'
+      DBInstanceClass: !Ref 'InstanceClass'
+      PubliclyAccessible: true
+      Tags:
+      - Key: Name
+        Value: Read Replica Database
+  ParameterGroup:
+    Type: 'AWS::RDS::DBParameterGroup'
+    Properties:
+      Description: Postgres parameter group
+      Family: postgres9.6
+      Parameters:
+        timezone: Europe/Vilnius
+  SecurityGroup:
+    Type: 'AWS::RDS::DBSecurityGroup'
+    Properties:
+      GroupDescription: Postgres security group
+      EC2VpcId: !ImportValue
+        'Fn::Sub': '${VpcStack}-VPCID'
+      DBSecurityGroupIngress:
+        - EC2SecurityGroupId: !Ref EC2SecurityGroup
+  EC2SecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Allow http to client host
+      VpcId: !ImportValue
+        'Fn::Sub': '${VpcStack}-VPCID'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '5432'
+          ToPort: '5432'
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: '5432'
+          ToPort: '5432'
+          CidrIp: 0.0.0.0/0
+  SubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: Postgres subnet group
+      SubnetIds:
+        - !ImportValue
+          'Fn::Sub': '${VpcStack}-PublicSubnetID'
+        - !ImportValue
+          'Fn::Sub': '${VpcStack}-PublicSubnet2ID'
