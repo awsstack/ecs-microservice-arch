@@ -1,0 +1,251 @@
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+  VpcStack:
+    Description: Name of an active CloudFormation vpc stack
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    AllowedPattern: '^[a-zA-Z][-a-zA-Z0-9]*$'
+  EcsStack:
+    Description: Name of an active CloudFormation ecs stack
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    AllowedPattern: '^[a-zA-Z][-a-zA-Z0-9]*$'
+  SqsStack:
+    Description: Name of an active CloudFormation sqs stack
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    AllowedPattern: '^[a-zA-Z][-a-zA-Z0-9]*$'
+  ServiceName:
+    Description: The microservice name
+    Type: String
+    MinLength: '1'
+    MaxLength: '255'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
+  TaskCPUUsage:
+    Description: Expected CPU usage
+    Type: String
+    Default: 2
+  TaskMemoryUsage:
+    Description: Expected Memory usage
+    Type: String
+    Default: 512
+  ContainerPort:
+    Type: String
+    Description: Container port
+    Default: 8080
+    AllowedPattern: '[0-9]*'
+  HealthCheckPeriodSeconds:
+    Type: String
+    AllowedPattern: '[0-9]*'
+  ListenerPort:
+    Type: String
+    AllowedPattern: '[0-9]*'
+  Image:
+    Type: String
+    Description: Task definition docker image name
+  DbUser:
+    Type: String
+    Description: Database user name
+  DbName:
+    Type: String
+    Description: Database name
+  DbPassword:
+    Type: String
+    Description: Database password
+  DbHost:
+    Type: String
+    Description: Database host
+  DbPort:
+    Type: String
+    Description: Database port
+  DbSslMode:
+    Type: String
+    Description: Database ssl mode
+    Default: disable
+Resources:
+  Service:
+    Type: 'AWS::ECS::Service'
+    Properties:
+      Cluster: !ImportValue
+        'Fn::Sub': '${EcsStack}-ECSCluster'
+      LoadBalancers:
+        - ContainerName: !Ref ServiceName
+          ContainerPort: !Ref ContainerPort
+          TargetGroupArn: !Ref TargetGroup
+      ServiceName: !Ref ServiceName
+      DesiredCount: 1
+      HealthCheckGracePeriodSeconds: !Ref HealthCheckPeriodSeconds
+      Role: !ImportValue
+        'Fn::Sub': '${EcsStack}-ECSServiceRole'
+      TaskDefinition: !Ref TaskDefinition
+  TaskDefinition:
+    Type: 'AWS::ECS::TaskDefinition'
+    Properties:
+      TaskRoleArn:
+        'Fn::GetAtt':
+          - TaskRole
+          - Arn
+      ExecutionRoleArn:
+        'Fn::GetAtt':
+          - ExecutionRole
+          - Arn
+      ContainerDefinitions:
+        - Name: !Ref ServiceName
+          Cpu: !Ref TaskCPUUsage
+          Memory: !Ref TaskMemoryUsage
+          Image: !Ref Image
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+              HostPort: 0
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref 'AWS::Region'
+              awslogs-group: !Ref LogGroup
+          Environment:
+            - Name: AWS_QUEUE_NAME_MESSAGE
+              Value: !ImportValue
+                'Fn::Sub': '${SqsStack}-MessageServiceQueueName'
+            - Name: AWS_QUEUE_NAME_RESPONSE
+              Value: !ImportValue
+                'Fn::Sub': '${SqsStack}-FormResponseServiceQueueName'
+            - Name: DB_USER
+              Value:
+                Ref: DbUser
+            - Name: DB_NAME
+              Value:
+                Ref: DbName
+            - Name: DB_PASSWORD
+              Value:
+                Ref: DbPassword
+            - Name: DB_HOST
+              Value:
+                Ref: DbHost
+            - Name: DB_PORT
+              Value:
+                Ref: DbPort
+            - Name: DB_SSLMODE
+              Value:
+                Ref: DbSslMode
+  ExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: logs
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: '*'
+        - PolicyName: ecr
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'ecr:*'
+                Resource: '*'
+  TargetGroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      Port: !Ref ListenerPort
+      Protocol: TCP
+      UnhealthyThresholdCount: 2
+      HealthyThresholdCount: 2
+      VpcId: !ImportValue
+        'Fn::Sub': '${VpcStack}-VPCID'
+  Listener:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+      LoadBalancerArn: !ImportValue
+        'Fn::Sub': '${EcsStack}-ELBLoadBalancer'
+      Port: !Ref ListenerPort
+      Protocol: TCP
+  LogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties: {}
+  MessageServiceQueuePolicy:
+    Type: 'AWS::SQS::QueuePolicy'
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS:
+                - 'Fn::GetAtt':
+                    - TaskRole
+                    - Arn
+            Action:
+              - 'sqs:SendMessage'
+              - 'sqs:GetQueueUrl'
+            Resource: '*'
+      Queues:
+        - !ImportValue
+          'Fn::Sub': '${SqsStack}-MessageServiceQueue'
+  FormResponseServiceQueuePolicy:
+    Type: 'AWS::SQS::QueuePolicy'
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS:
+                - 'Fn::GetAtt':
+                    - TaskRole
+                    - Arn
+            Action:
+              - 'sqs:ReceiveMessage'
+              - 'sqs:DeleteMessage'
+              - 'sqs:GetQueueUrl'
+            Resource: '*'
+      Queues:
+        - !ImportValue
+          'Fn::Sub': '${SqsStack}-FormResponseServiceQueue'
+  TaskRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: dynamodb
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'lambda:InvokeFunction'
+                Resource: '*'
+
