@@ -4,4 +4,4 @@ This repository contains a set of AWS Cloudformation templates which can be used
 
 # Deploying templates
 
-[![cloudformation-launch-button](images/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-2#/stacks/new?stackName=Production&templateURL=https://s3.amazonaws.com/awsstack-t/stack.yaml)
+[![cloudformation-launch-button](images/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-2#/stacks/new?stackName=Production&templateURL=https://s3.amazonaws.com/awsstack-ecs-microservice-arch/stack.yaml)
