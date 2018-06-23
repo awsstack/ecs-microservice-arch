@@ -108,12 +108,9 @@ Resources:
               awslogs-region: !Ref 'AWS::Region'
               awslogs-group: !Ref LogGroup
           Environment:
-            - Name: AWS_QUEUE_NAME_MESSAGE
+            - Name: QUEUE_NAME
               Value: !ImportValue
-                'Fn::Sub': '${SqsStack}-MessageServiceQueueName'
-            - Name: AWS_QUEUE_NAME_RESPONSE
-              Value: !ImportValue
-                'Fn::Sub': '${SqsStack}-FormResponseServiceQueueName'
+                'Fn::Sub': '${SqsStack}-ServiceQueueRef'
             - Name: DB_USER
               Value:
                 Ref: DbUser
@@ -187,7 +184,7 @@ Resources:
   LogGroup:
     Type: 'AWS::Logs::LogGroup'
     Properties: {}
-  MessageServiceQueuePolicy:
+  ServiceQueuePolicy:
     Type: 'AWS::SQS::QueuePolicy'
     Properties:
       PolicyDocument:
@@ -205,27 +202,7 @@ Resources:
             Resource: '*'
       Queues:
         - !ImportValue
-          'Fn::Sub': '${SqsStack}-MessageServiceQueue'
-  FormResponseServiceQueuePolicy:
-    Type: 'AWS::SQS::QueuePolicy'
-    Properties:
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              AWS:
-                - 'Fn::GetAtt':
-                    - TaskRole
-                    - Arn
-            Action:
-              - 'sqs:ReceiveMessage'
-              - 'sqs:DeleteMessage'
-              - 'sqs:GetQueueUrl'
-            Resource: '*'
-      Queues:
-        - !ImportValue
-          'Fn::Sub': '${SqsStack}-FormResponseServiceQueue'
+          'Fn::Sub': '${SqsStack}-ServiceQueueArn'
   TaskRole:
     Type: 'AWS::IAM::Role'
     Properties:
